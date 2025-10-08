@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Calendar, CalendarDays, Users, Building2, Clock, CheckCircle, AlertCircle, Plus, Edit, Eye, Bell, UserCheck, UserX, Trash2, Check, X, Search, Filter, BarChart3, Calendar as CalendarIcon, UserPlus, Copy } from 'lucide-react'
+import { Calendar, CalendarDays, Users, Building2, Clock, CheckCircle, AlertCircle, Plus, Edit, Eye, Bell, UserCheck, UserX, Trash2, Check, X, Search, Filter, BarChart3, Calendar as CalendarIcon, UserPlus, Copy, Lock, LockOpen } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ChecklistItem {
@@ -33,6 +33,7 @@ interface Subempreiteiro {
   obrasAtribuidas: number
   proximasDatasLivres: string[]
   especialidade: string
+  bloqueado?: boolean
 }
 
 interface Tarefa {
@@ -93,6 +94,10 @@ export default function GestaoSubempreiteiros() {
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showRegister, setShowRegister] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
+  const [registerData, setRegisterData] = useState({ nome: '', email: '', password: '' })
   const [subempreiteiros, setSubempreiteiros] = useState<Subempreiteiro[]>([])
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [obras, setObras] = useState<Obra[]>([])
@@ -129,6 +134,12 @@ export default function GestaoSubempreiteiros() {
   const [showObrasAtivasModal, setShowObrasAtivasModal] = useState(false)
   const [showSubempreiteirosObraModal, setShowSubempreiteirosObraModal] = useState(false)
 
+  // Estados para confirmação de exclusão
+  const [showDeleteObraDialog, setShowDeleteObraDialog] = useState(false)
+  const [showDeleteTarefaDialog, setShowDeleteTarefaDialog] = useState(false)
+  const [obraToDelete, setObraToDelete] = useState<Obra | null>(null)
+  const [tarefaToDelete, setTarefaToDelete] = useState<Tarefa | null>(null)
+
   // Dados de exemplo
   useEffect(() => {
     const usuariosExemplo: Usuario[] = [
@@ -163,7 +174,8 @@ export default function GestaoSubempreiteiros() {
         tarefas: [],
         obrasAtribuidas: 3,
         proximasDatasLivres: ['2024-01-15', '2024-01-22', '2024-01-29'],
-        especialidade: 'Eletricista'
+        especialidade: 'Eletricista',
+        bloqueado: false
       },
       {
         id: '2',
@@ -175,7 +187,8 @@ export default function GestaoSubempreiteiros() {
         tarefas: [],
         obrasAtribuidas: 2,
         proximasDatasLivres: ['2024-01-18', '2024-01-25', '2024-02-01'],
-        especialidade: 'Canalizadora'
+        especialidade: 'Canalizadora',
+        bloqueado: false
       },
       {
         id: '3',
@@ -187,7 +200,8 @@ export default function GestaoSubempreiteiros() {
         tarefas: [],
         obrasAtribuidas: 4,
         proximasDatasLivres: ['2024-01-20', '2024-01-27', '2024-02-03'],
-        especialidade: 'Pintor'
+        especialidade: 'Pintor',
+        bloqueado: false
       }
     ]
 
@@ -309,23 +323,124 @@ export default function GestaoSubempreiteiros() {
     
     setCronogramaStartDate(hoje.toISOString().split('T')[0])
     setCronogramaEndDate(proximasSemanas.toISOString().split('T')[0])
+
+    // Configurar dados salvos automaticamente
+    const savedData = localStorage.getItem('gestaoSubempreiteirosData')
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData)
+        if (parsedData.subempreiteiros) setSubempreiteiros(parsedData.subempreiteiros)
+        if (parsedData.tarefas) setTarefas(parsedData.tarefas)
+        if (parsedData.obras) setObras(parsedData.obras)
+        if (parsedData.usuarios) setUsuarios(parsedData.usuarios)
+        if (parsedData.notificacoes) setNotificacoes(parsedData.notificacoes)
+      } catch (error) {
+        console.error('Erro ao carregar dados salvos:', error)
+      }
+    }
   }, [])
+
+  // Salvar dados automaticamente sempre que houver mudanças
+  useEffect(() => {
+    const dataToSave = {
+      subempreiteiros,
+      tarefas,
+      obras,
+      usuarios,
+      notificacoes
+    }
+    localStorage.setItem('gestaoSubempreiteirosData', JSON.stringify(dataToSave))
+  }, [subempreiteiros, tarefas, obras, usuarios, notificacoes])
+
+  const handleForgotPassword = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // Verificar se o email existe no sistema
+    const user = usuarios.find(u => u.email === forgotPasswordEmail)
+    if (user) {
+      toast.success('Instruções de recuperação enviadas para o seu email!')
+      setShowForgotPassword(false)
+      setForgotPasswordEmail('')
+    } else {
+      toast.error('Email não encontrado no sistema!')
+    }
+  }
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
-    const user = usuarios.find(u => u.username === username && u.status === 'aprovado')
-    if (username === 'admin' && password === 'construtora2024') {
-      const adminUser = usuarios.find(u => u.username === 'admin')
-      setCurrentUser(adminUser || usuarios[0])
+    
+    // Verificar credenciais do administrador BMD2025
+    if (username === 'BMD2025' && password === 'construcao2025') {
+      const adminUser = {
+        id: 'admin-bmd',
+        nome: 'Administrador BMD',
+        email: 'admin@bmd.pt',
+        username: 'BMD2025',
+        status: 'aprovado' as const,
+        tipo: 'admin' as const,
+        dataRegisto: '2024-01-01'
+      }
+      setCurrentUser(adminUser)
       setIsLoggedIn(true)
+      setActiveTab('dashboard') // Definir dashboard como página padrão
       toast.success('Login realizado com sucesso!')
-    } else if (user && password === 'password123') {
+      return
+    }
+    
+    // Verificar outros usuários aprovados
+    const user = usuarios.find(u => u.username === username && u.status === 'aprovado')
+    if (user && password === 'password123') {
       setCurrentUser(user)
       setIsLoggedIn(true)
+      setActiveTab('dashboard') // Definir dashboard como página padrão
       toast.success('Login realizado com sucesso!')
-    } else {
-      toast.error('Credenciais inválidas ou utilizador não aprovado!')
+      return
     }
+    
+    // Verificar se usuário existe mas não foi aprovado
+    const pendingUser = usuarios.find(u => u.username === username && u.status === 'pendente')
+    if (pendingUser) {
+      toast.error('Conta ainda não aprovada pelo administrador. Aguarde a aprovação.')
+      return
+    }
+    
+    // Credenciais inválidas
+    toast.error('Nome de utilizador ou palavra-passe incorretos. Verifique os dados introduzidos.')
+  }
+
+  const handleLogout = () => {
+    setIsLoggedIn(false)
+    setCurrentUser(null)
+    setUsername('')
+    setPassword('')
+    setActiveTab('dashboard')
+    toast.success('Sessão terminada com sucesso!')
+  }
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // Verificar se email já existe
+    const emailExists = usuarios.some(u => u.email === registerData.email)
+    if (emailExists) {
+      toast.error('Este email já está registado!')
+      return
+    }
+
+    const novoUsuario: Usuario = {
+      id: Date.now().toString(),
+      nome: registerData.nome,
+      email: registerData.email,
+      username: registerData.email.split('@')[0], // usar parte do email como username
+      status: 'pendente',
+      tipo: 'gestor',
+      dataRegisto: new Date().toISOString().split('T')[0]
+    }
+
+    setUsuarios([...usuarios, novoUsuario])
+    setRegisterData({ nome: '', email: '', password: '' })
+    setShowRegister(false)
+    toast.success('Registo efetuado! Aguarde aprovação do administrador.')
   }
 
   const handleAddUser = (formData: FormData) => {
@@ -398,7 +513,8 @@ export default function GestaoSubempreiteiros() {
       precoHora: parseFloat(formData.get('precoHora') as string),
       tarefas: [],
       obrasAtribuidas: 0,
-      proximasDatasLivres: []
+      proximasDatasLivres: [],
+      bloqueado: false
     }
     
     setSubempreiteiros([...subempreiteiros, novoSubempreiteiro])
@@ -425,6 +541,14 @@ export default function GestaoSubempreiteiros() {
     setIsEditingSubempreiteiro(false)
     setEditingSubempreiteiro(null)
     toast.success('Subempreiteiro atualizado com sucesso!')
+  }
+
+  const toggleSubempreiteiroBloqueio = (subempreiteiroId: string) => {
+    setSubempreiteiros(subempreiteiros.map(sub => 
+      sub.id === subempreiteiroId ? { ...sub, bloqueado: !sub.bloqueado } : sub
+    ))
+    const sub = subempreiteiros.find(s => s.id === subempreiteiroId)
+    toast.success(`Subempreiteiro ${sub?.bloqueado ? 'desbloqueado' : 'bloqueado'} com sucesso!`)
   }
 
   const handleAddObra = (formData: FormData) => {
@@ -464,7 +588,49 @@ export default function GestaoSubempreiteiros() {
     toast.success('Obra atualizada com sucesso!')
   }
 
+  const confirmDeleteObra = (obra: Obra) => {
+    setObraToDelete(obra)
+    setShowDeleteObraDialog(true)
+  }
+
+  const handleDeleteObra = () => {
+    if (!obraToDelete) return
+    
+    // Remover obra
+    setObras(obras.filter(obra => obra.id !== obraToDelete.id))
+    
+    // Remover tarefas associadas à obra
+    setTarefas(tarefas.filter(tarefa => tarefa.obra !== obraToDelete.nome))
+    
+    setShowDeleteObraDialog(false)
+    setObraToDelete(null)
+    toast.success('Obra apagada com sucesso!')
+  }
+
+  const confirmDeleteTarefa = (tarefa: Tarefa) => {
+    setTarefaToDelete(tarefa)
+    setShowDeleteTarefaDialog(true)
+  }
+
+  const handleDeleteTarefa = () => {
+    if (!tarefaToDelete) return
+    
+    setTarefas(tarefas.filter(tarefa => tarefa.id !== tarefaToDelete.id))
+    setShowDeleteTarefaDialog(false)
+    setTarefaToDelete(null)
+    toast.success('Tarefa apagada com sucesso!')
+  }
+
   const handleAddTarefa = (formData: FormData) => {
+    const subempreiteiroNome = formData.get('subempreiteiro') as string
+    const subempreiteiro = subempreiteiros.find(sub => sub.nome === subempreiteiroNome)
+    
+    // Verificar se subempreiteiro está bloqueado
+    if (subempreiteiro?.bloqueado) {
+      toast.error('Não é possível atribuir tarefa a subempreiteiro bloqueado!')
+      return
+    }
+
     const checklistItems = (formData.get('checklist') as string)
       .split('\n')
       .filter(item => item.trim())
@@ -482,7 +648,7 @@ export default function GestaoSubempreiteiros() {
       dataInicio: formData.get('dataInicio') as string,
       dataFim: formData.get('dataFim') as string,
       status: 'pendente',
-      subempreiteiro: formData.get('subempreiteiro') as string,
+      subempreiteiro: subempreiteiroNome,
       checklist: checklistItems,
       percentagemConclusao: 0
     }
@@ -618,74 +784,97 @@ export default function GestaoSubempreiteiros() {
     const weeks = getWeekDates()
     
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse border border-gray-300">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border border-gray-300 p-2 text-left font-semibold min-w-[200px]">Obra</th>
-              {weeks.map((week, index) => (
-                <th key={index} className="border border-gray-300 p-2 text-center min-w-[140px]">
-                  <div className="text-xs text-gray-600">{week.month}</div>
-                  <div className="text-sm font-semibold">{week.start} - {week.end}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+      <div className="relative">
+        {/* Container com scroll horizontal */}
+        <div className="flex">
+          {/* Coluna fixa das obras */}
+          <div className="flex-shrink-0 bg-white border-r-2 border-gray-300 z-10">
+            <div className="bg-gray-100 border-b border-gray-300 p-2 h-16 flex items-center">
+              <div className="font-semibold text-left min-w-[250px] max-w-[250px]">Obra</div>
+            </div>
             {obras.map((obra) => (
-              <tr key={obra.id} className="hover:bg-gray-50">
-                <td className="border border-gray-300 p-2 font-medium">
-                  <div className="font-semibold">{obra.nome}</div>
-                  <div className="text-xs text-gray-500">{obra.descricao}</div>
+              <div key={obra.id} className="border-b border-gray-300 p-2 h-auto min-h-[80px] bg-white hover:bg-gray-50">
+                <div className="min-w-[250px] max-w-[250px]">
+                  <div className="font-semibold text-sm">{obra.nome}</div>
+                  <div className="text-xs text-gray-500 mt-1">{obra.descricao}</div>
                   <div className="text-xs text-blue-600 mt-1">Resp: {obra.responsavel}</div>
-                </td>
-                {weeks.map((week, weekIndex) => {
-                  const tarefasDaSemana = tarefas.filter(tarefa => {
-                    if (tarefa.obra !== obra.nome) return false
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Container das semanas com scroll horizontal */}
+          <div className="flex-1 overflow-x-auto">
+            <div className="min-w-max">
+              {/* Cabeçalho das semanas */}
+              <div className="flex bg-gray-100 border-b border-gray-300">
+                {weeks.map((week, index) => (
+                  <div key={index} className="border-l border-gray-300 p-2 text-center min-w-[140px] h-16 flex flex-col justify-center">
+                    <div className="text-xs text-gray-600">{week.month}</div>
+                    <div className="text-sm font-semibold">{week.start} - {week.end}</div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Linhas das obras */}
+              {obras.map((obra) => (
+                <div key={obra.id} className="flex border-b border-gray-300 hover:bg-gray-50">
+                  {weeks.map((week, weekIndex) => {
+                    const tarefasDaSemana = tarefas.filter(tarefa => {
+                      if (tarefa.obra !== obra.nome) return false
+                      
+                      const tarefaInicio = new Date(tarefa.dataInicio)
+                      const tarefaFim = new Date(tarefa.dataFim)
+                      const [diaI, mesI] = week.start.split('/')
+                      const [diaF, mesF] = week.end.split('/')
+                      const anoAtual = new Date().getFullYear()
+                      const semanaInicio = new Date(anoAtual, parseInt(mesI) - 1, parseInt(diaI))
+                      const semanaFim = new Date(anoAtual, parseInt(mesF) - 1, parseInt(diaF))
+                      
+                      return (tarefaInicio >= semanaInicio && tarefaInicio <= semanaFim) ||
+                             (tarefaFim >= semanaInicio && tarefaFim <= semanaFim) ||
+                             (tarefaInicio <= semanaInicio && tarefaFim >= semanaFim)
+                    })
                     
-                    const tarefaInicio = new Date(tarefa.dataInicio)
-                    const tarefaFim = new Date(tarefa.dataFim)
-                    const [diaI, mesI] = week.start.split('/')
-                    const [diaF, mesF] = week.end.split('/')
-                    const anoAtual = new Date().getFullYear()
-                    const semanaInicio = new Date(anoAtual, parseInt(mesI) - 1, parseInt(diaI))
-                    const semanaFim = new Date(anoAtual, parseInt(mesF) - 1, parseInt(diaF))
-                    
-                    return (tarefaInicio >= semanaInicio && tarefaInicio <= semanaFim) ||
-                           (tarefaFim >= semanaInicio && tarefaFim <= semanaFim) ||
-                           (tarefaInicio <= semanaInicio && tarefaFim >= semanaFim)
-                  })
-                  
-                  return (
-                    <td key={weekIndex} className="border border-gray-300 p-1 align-top">
-                      {tarefasDaSemana.map((tarefa, tarefaIndex) => (
-                        <div key={tarefaIndex} className="mb-1">
-                          <div className={`text-xs p-2 rounded-md border-l-4 ${
-                            tarefa.status === 'em_andamento' ? 'bg-blue-50 border-blue-400 text-blue-800' :
-                            tarefa.status === 'pendente' ? 'bg-yellow-50 border-yellow-400 text-yellow-800' :
-                            'bg-green-50 border-green-400 text-green-800'
-                          }`}>
-                            <div className="font-semibold truncate">{tarefa.subempreiteiro}</div>
-                            <div className="truncate text-xs opacity-90">{tarefa.descricao}</div>
-                            <div className="flex items-center justify-between mt-1">
-                              <span className="text-xs opacity-75">{tarefa.percentagemConclusao}%</span>
-                              <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-current opacity-60 transition-all"
-                                  style={{ width: `${tarefa.percentagemConclusao}%` }}
-                                />
+                    return (
+                      <div key={weekIndex} className="border-l border-gray-300 p-1 align-top min-w-[140px] min-h-[80px]">
+                        {tarefasDaSemana.map((tarefa, tarefaIndex) => (
+                          <div key={tarefaIndex} className="mb-1">
+                            <div className={`text-xs p-2 rounded-md border-l-4 ${
+                              tarefa.status === 'em_andamento' ? 'bg-blue-50 border-blue-400 text-blue-800' :
+                              tarefa.status === 'pendente' ? 'bg-yellow-50 border-yellow-400 text-yellow-800' :
+                              'bg-green-50 border-green-400 text-green-800'
+                            }`}>
+                              <div className="font-semibold truncate">{tarefa.subempreiteiro}</div>
+                              <div className="truncate text-xs opacity-90">{tarefa.descricao}</div>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-xs opacity-75">{tarefa.percentagemConclusao}%</span>
+                                <div className="w-8 h-1 bg-gray-200 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-current opacity-60 transition-all"
+                                    style={{ width: `${tarefa.percentagemConclusao}%` }}
+                                  />
+                                </div>
                               </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-4 w-4 p-0 mt-1 hover:bg-red-100"
+                                onClick={() => confirmDeleteTarefa(tarefa)}
+                              >
+                                <Trash2 className="w-3 h-3 text-red-600" />
+                              </Button>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -702,38 +891,143 @@ export default function GestaoSubempreiteiros() {
             <CardDescription>Sistema de gestão para construtoras</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Nome de utilizador</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Digite o seu utilizador"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Palavra-passe</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Digite a sua palavra-passe"
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
-                Entrar
-              </Button>
-            </form>
-            <div className="mt-4 p-3 bg-gray-100 rounded-lg text-sm text-gray-600">
-              <strong>Credenciais de teste:</strong><br />
-              Utilizador: admin<br />
-              Palavra-passe: construtora2024
-            </div>
+            {!showRegister && !showForgotPassword ? (
+              <>
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Nome de utilizador</Label>
+                    <Input
+                      id="username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Digite o seu utilizador"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Palavra-passe</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Digite a sua palavra-passe"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
+                    Entrar
+                  </Button>
+                </form>
+                <div className="mt-4 space-y-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowRegister(true)}
+                    className="w-full"
+                  >
+                    Novo Utilizador
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="w-full text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Esqueci a palavra-passe
+                  </Button>
+                </div>
+              </>
+            ) : showForgotPassword ? (
+              <>
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="forgotEmail">Email</Label>
+                    <Input
+                      id="forgotEmail"
+                      type="email"
+                      value={forgotPasswordEmail}
+                      onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                      placeholder="Digite o seu email"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">
+                    Enviar Instruções
+                  </Button>
+                </form>
+                <div className="mt-4 text-center">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowForgotPassword(false)
+                      setForgotPasswordEmail('')
+                    }}
+                    className="w-full"
+                  >
+                    Voltar ao Login
+                  </Button>
+                </div>
+                <div className="mt-4 p-3 bg-blue-100 rounded-lg text-sm text-blue-800">
+                  <strong>Nota:</strong> Se o email estiver registado no sistema, receberá instruções para recuperar a sua palavra-passe.
+                </div>
+              </>
+            ) : (
+              <>
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nome">Nome completo</Label>
+                    <Input
+                      id="nome"
+                      type="text"
+                      value={registerData.nome}
+                      onChange={(e) => setRegisterData({...registerData, nome: e.target.value})}
+                      placeholder="Digite o seu nome completo"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={registerData.email}
+                      onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
+                      placeholder="Digite o seu email"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Palavra-passe</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={registerData.password}
+                      onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
+                      placeholder="Digite a sua palavra-passe"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full bg-green-600 hover:bg-green-700">
+                    Registar
+                  </Button>
+                </form>
+                <div className="mt-4 text-center">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowRegister(false)
+                      setRegisterData({ nome: '', email: '', password: '' })
+                    }}
+                    className="w-full"
+                  >
+                    Voltar ao Login
+                  </Button>
+                </div>
+                <div className="mt-4 p-3 bg-yellow-100 rounded-lg text-sm text-yellow-800">
+                  <strong>Nota:</strong> Após o registo, aguarde a aprovação do administrador para ter acesso à aplicação.
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -838,7 +1132,7 @@ export default function GestaoSubempreiteiros() {
               </div>
               <Button 
                 variant="outline" 
-                onClick={() => setIsLoggedIn(false)}
+                onClick={handleLogout}
                 className="text-gray-600 hover:text-gray-900"
               >
                 Sair
@@ -847,6 +1141,58 @@ export default function GestaoSubempreiteiros() {
           </div>
         </div>
       </header>
+
+      {/* Dialog de confirmação para apagar obra */}
+      <Dialog open={showDeleteObraDialog} onOpenChange={setShowDeleteObraDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogDescription>
+              Pretende continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex space-x-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteObraDialog(false)}
+            >
+              Não
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteObra}
+            >
+              Sim
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de confirmação para apagar tarefa */}
+      <Dialog open={showDeleteTarefaDialog} onOpenChange={setShowDeleteTarefaDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogDescription>
+              Pretende continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex space-x-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteTarefaDialog(false)}
+            >
+              Não
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteTarefa}
+            >
+              Sim
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Notificações Dialog */}
       <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
@@ -954,7 +1300,7 @@ export default function GestaoSubempreiteiros() {
           </DialogHeader>
           <div className="space-y-4 max-h-96 overflow-y-auto">
             {subempreiteiros.map((sub) => (
-              <div key={sub.id} className="flex items-center justify-between p-4 border rounded-lg">
+              <div key={sub.id} className={`flex items-center justify-between p-4 border rounded-lg ${sub.bloqueado ? 'bg-red-50 border-red-200' : ''}`}>
                 <div>
                   <h3 className="font-semibold">{sub.nome}</h3>
                   <p className="text-sm text-gray-600">{sub.especialidade} • {sub.contacto}</p>
@@ -962,6 +1308,7 @@ export default function GestaoSubempreiteiros() {
                     <Badge variant="secondary">€{sub.precoHora}/hora</Badge>
                     <span className="text-xs text-gray-500">★ {sub.avaliacao}</span>
                     <span className="text-xs text-gray-500">{sub.obrasAtribuidas} obras</span>
+                    {sub.bloqueado && <Badge variant="destructive">Bloqueado</Badge>}
                   </div>
                 </div>
               </div>
@@ -1166,7 +1513,7 @@ export default function GestaoSubempreiteiros() {
                       const tarefasPendentes = tarefas.filter(t => t.subempreiteiro === sub.nome && t.status === 'pendente')
                       
                       return (
-                        <div key={sub.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                        <div key={sub.id} className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 ${sub.bloqueado ? 'bg-red-50 border-red-200' : ''}`}>
                           <div className="flex-1">
                             <h3 className="font-semibold text-gray-900">{sub.nome}</h3>
                             <p className="text-sm text-gray-600">{sub.especialidade} • {sub.contacto}</p>
@@ -1181,10 +1528,13 @@ export default function GestaoSubempreiteiros() {
                                 <span className="text-xs text-yellow-600">★</span>
                                 <span className="text-xs text-gray-600 ml-1">{sub.avaliacao}</span>
                               </div>
+                              {sub.bloqueado && <Badge variant="destructive" className="text-xs">Bloqueado</Badge>}
                             </div>
                           </div>
                           <div className="text-right">
-                            {tarefasAtivas.length > 0 ? (
+                            {sub.bloqueado ? (
+                              <Badge variant="destructive">Bloqueado</Badge>
+                            ) : tarefasAtivas.length > 0 ? (
                               <Badge className="bg-green-500 hover:bg-green-600">A trabalhar</Badge>
                             ) : tarefasPendentes.length > 0 ? (
                               <Badge className="bg-yellow-500 hover:bg-yellow-600">Tarefa atribuída</Badge>
@@ -1353,7 +1703,7 @@ export default function GestaoSubempreiteiros() {
                               <SelectValue placeholder="Selecione o subempreiteiro" />
                             </SelectTrigger>
                             <SelectContent>
-                              {subempreiteiros.map((sub) => (
+                              {subempreiteiros.filter(sub => !sub.bloqueado).map((sub) => (
                                 <SelectItem key={sub.id} value={sub.nome}>
                                   {sub.nome} - {sub.especialidade}
                                 </SelectItem>
@@ -1403,13 +1753,23 @@ export default function GestaoSubempreiteiros() {
                   }, [] as { nome: string; responsavel: string; progresso: number }[])
 
                 return (
-                  <Card key={sub.id} className="hover:shadow-lg transition-shadow">
+                  <Card key={sub.id} className={`hover:shadow-lg transition-shadow ${sub.bloqueado ? 'bg-red-50 border-red-200' : ''}`}>
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-lg">{sub.nome}</CardTitle>
-                        <div className="flex items-center space-x-1">
-                          <span className="text-yellow-500">★</span>
-                          <span className="text-sm font-medium">{sub.avaliacao}</span>
+                        <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-1">
+                            <span className="text-yellow-500">★</span>
+                            <span className="text-sm font-medium">{sub.avaliacao}</span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toggleSubempreiteiroBloqueio(sub.id)}
+                            className={`p-1 ${sub.bloqueado ? 'text-red-600 hover:text-red-700' : 'text-gray-600 hover:text-gray-700'}`}
+                          >
+                            {sub.bloqueado ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                          </Button>
                         </div>
                       </div>
                       <CardDescription>{sub.especialidade} • {sub.email}</CardDescription>
@@ -1428,6 +1788,11 @@ export default function GestaoSubempreiteiros() {
                           <span className="text-gray-600">Obras atribuídas:</span>
                           <span className="font-medium">{obrasAtribuidas.length}</span>
                         </div>
+                        {sub.bloqueado && (
+                          <div className="p-2 bg-red-100 border border-red-200 rounded text-xs text-red-700">
+                            Subempreiteiro bloqueado - não pode receber novas tarefas
+                          </div>
+                        )}
                         <div className="pt-2 border-t">
                           <p className="text-xs text-gray-600 mb-2">Próximas datas livres:</p>
                           <div className="flex flex-wrap gap-1">
@@ -1461,6 +1826,9 @@ export default function GestaoSubempreiteiros() {
                                   <p className="text-sm text-gray-600">{sub.especialidade}</p>
                                   <p className="text-sm text-gray-600">{sub.contacto}</p>
                                   <p className="text-sm text-gray-600">{sub.email}</p>
+                                  {sub.bloqueado && (
+                                    <Badge variant="destructive" className="mt-2">Bloqueado</Badge>
+                                  )}
                                 </div>
                                 <div className="text-right">
                                   <div className="text-sm text-gray-600">Avaliação</div>
@@ -1584,7 +1952,17 @@ export default function GestaoSubempreiteiros() {
                 return (
                   <Card key={obra.id} className="hover:shadow-lg transition-shadow">
                     <CardHeader>
-                      <CardTitle className="text-lg">{obra.nome}</CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{obra.nome}</CardTitle>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => confirmDeleteObra(obra)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                       <CardDescription>{obra.descricao}</CardDescription>
                     </CardHeader>
                     <CardContent>
