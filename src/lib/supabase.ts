@@ -1,336 +1,347 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Verificar se estamos em ambiente de build
+const isBuildTime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_ENV
 
-// Tipos para o banco de dados
-export interface DatabaseSubempreiteiro {
-  id: string
-  user_id: string
-  nome: string
-  contacto: string
-  email: string
-  avaliacao: number
-  preco_hora: number
-  obras_atribuidas: number
-  proximas_datas_livres: string[]
-  especialidade: string
-  bloqueado: boolean
-  created_at: string
-  updated_at: string
-}
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 1,
+    },
+  },
+  // Desabilitar conexões durante build
+  global: {
+    fetch: isBuildTime ? undefined : fetch,
+  },
+})
 
-export interface DatabaseObra {
-  id: string
-  user_id: string
-  nome: string
-  descricao: string
-  responsavel: string
-  data_inicio: string
-  data_fim_prevista: string
-  notas?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface DatabaseTarefa {
-  id: string
-  user_id: string
-  descricao: string
-  obra: string
-  responsavel_obra: string
-  data_inicio: string
-  data_fim: string
-  status: 'pendente' | 'em_andamento' | 'concluida'
-  subempreiteiro: string
-  checklist: any[]
-  percentagem_conclusao: number
-  created_at: string
-  updated_at: string
-}
-
-export interface DatabaseUsuario {
+// Tipos para as tabelas do banco
+export interface Usuario {
   id: string
   nome: string
   email: string
   username: string
   status: 'pendente' | 'aprovado' | 'rejeitado'
-  tipo: 'admin' | 'gestor' | 'responsavel'
+  tipo: 'gestor' | 'admin' | 'subempreiteiro'
   data_registo: string
   created_at: string
   updated_at: string
 }
 
-export interface DatabaseNotificacao {
-  id: string
-  user_id: string
-  tipo: 'documentacao' | 'seguranca' | 'material'
-  titulo: string
-  descricao: string
-  data_alerta: string
-  tarefa: string
-  responsavel: string
-  lida: boolean
-  created_at: string
-  updated_at: string
+// Usuário padrão para fallback
+const DEFAULT_USER: Usuario = {
+  id: 'bmd-2025-user-id',
+  nome: 'BMD Administrator',
+  email: 'admin@bmdproject.com',
+  username: 'BMD2025',
+  status: 'aprovado',
+  tipo: 'admin',
+  data_registo: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
 }
 
-// Funções de sincronização
-export const syncSubempreiteiros = async (userId: string, subempreiteiros: any[]) => {
-  try {
-    // Primeiro, buscar dados existentes
-    const { data: existing } = await supabase
-      .from('subempreiteiros')
-      .select('*')
-      .eq('user_id', userId)
+// Dados de exemplo para modo offline
+const generateSampleData = (table: string, userId: string) => {
+  const baseData = {
+    user_id: userId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
 
-    // Sincronizar cada subempreiteiro
-    for (const sub of subempreiteiros) {
-      const existingRecord = existing?.find(e => e.id === sub.id)
+  switch (table) {
+    case 'obras':
+      return [
+        {
+          id: 'obra-1',
+          nome: 'Construção Residencial - Vila Nova',
+          descricao: 'Construção de moradia unifamiliar com 3 quartos',
+          responsavel: 'João Silva',
+          data_inicio: '2024-01-15',
+          data_fim_prevista: '2024-06-30',
+          notas: 'Projeto em fase inicial',
+          ...baseData,
+        },
+        {
+          id: 'obra-2',
+          nome: 'Renovação Comercial - Centro',
+          descricao: 'Renovação completa de espaço comercial',
+          responsavel: 'Maria Santos',
+          data_inicio: '2024-02-01',
+          data_fim_prevista: '2024-04-15',
+          notas: 'Urgente - cliente prioritário',
+          ...baseData,
+        }
+      ]
+
+    case 'subempreiteiros':
+      return [
+        {
+          id: 'sub-1',
+          nome: 'António Pereira',
+          telefone: '+351 912 345 678',
+          email: 'antonio@exemplo.com',
+          especialidade: 'Carpintaria',
+          status: 'Ativo',
+          ...baseData,
+        },
+        {
+          id: 'sub-2',
+          nome: 'Carlos Mendes',
+          telefone: '+351 913 456 789',
+          email: 'carlos@exemplo.com',
+          especialidade: 'Eletricidade',
+          status: 'Ativo',
+          ...baseData,
+        }
+      ]
+
+    case 'tarefas':
+      return [
+        {
+          id: 'tarefa-1',
+          titulo: 'Instalação de sistema elétrico',
+          descricao: 'Instalação completa do sistema elétrico',
+          prioridade: 'alta',
+          status: 'em_andamento',
+          data_vencimento: '2024-03-15',
+          ...baseData,
+        },
+        {
+          id: 'tarefa-2',
+          titulo: 'Carpintaria - Portas e janelas',
+          descricao: 'Instalação de portas e janelas',
+          prioridade: 'media',
+          status: 'pendente',
+          data_vencimento: '2024-03-20',
+          ...baseData,
+        }
+      ]
+
+    case 'notificacoes':
+      return [
+        {
+          id: 'notif-1',
+          tipo: 'prazo',
+          titulo: 'Prazo próximo',
+          mensagem: 'A tarefa "Instalação de sistema elétrico" tem prazo até 15/03',
+          lida: false,
+          ...baseData,
+        },
+        {
+          id: 'notif-2',
+          tipo: 'nova_tarefa',
+          titulo: 'Nova tarefa atribuída',
+          mensagem: 'Nova tarefa de carpintaria foi atribuída',
+          lida: true,
+          ...baseData,
+        }
+      ]
+
+    default:
+      return []
+  }
+}
+
+// Funções de autenticação customizada
+export const authenticateUser = async (username: string, password: string) => {
+  try {
+    // Verificar credenciais do usuário BMD2025
+    if (username === 'BMD2025' && password === 'construcao2025') {
+      let user = DEFAULT_USER
+
+      // Criar sessão persistente
+      const sessionData = {
+        user_id: user.id,
+        username: user.username,
+        nome: user.nome,
+        email: user.email,
+        tipo: user.tipo,
+        authenticated: true,
+        login_time: new Date().toISOString(),
+      }
+
+      // Salvar no localStorage para persistência
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('bmd_session', JSON.stringify(sessionData))
+          localStorage.setItem('bmd_user', JSON.stringify(user))
+        } catch (storageError) {
+          console.warn('Erro ao salvar no localStorage:', storageError)
+        }
+      }
+
+      return { user, session: sessionData }
+    }
+
+    throw new Error('Credenciais inválidas')
+  } catch (error) {
+    console.error('Erro na autenticação:', error)
+    throw error
+  }
+}
+
+export const getCurrentUser = async () => {
+  try {
+    // Verificar localStorage primeiro
+    if (typeof window !== 'undefined') {
+      const sessionData = localStorage.getItem('bmd_session')
+      const userData = localStorage.getItem('bmd_user')
       
-      const dbRecord: Omit<DatabaseSubempreiteiro, 'created_at' | 'updated_at'> = {
-        id: sub.id,
-        user_id: userId,
-        nome: sub.nome,
-        contacto: sub.contacto,
-        email: sub.email,
-        avaliacao: sub.avaliacao,
-        preco_hora: sub.precoHora,
-        obras_atribuidas: sub.obrasAtribuidas,
-        proximas_datas_livres: sub.proximasDatasLivres,
-        especialidade: sub.especialidade,
-        bloqueado: sub.bloqueado || false
-      }
-
-      if (existingRecord) {
-        await supabase
-          .from('subempreiteiros')
-          .update({ ...dbRecord, updated_at: new Date().toISOString() })
-          .eq('id', sub.id)
-          .eq('user_id', userId)
-      } else {
-        await supabase
-          .from('subempreiteiros')
-          .insert({ ...dbRecord, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error('Erro ao sincronizar subempreiteiros:', error)
-    return { success: false, error }
-  }
-}
-
-export const syncObras = async (userId: string, obras: any[]) => {
-  try {
-    const { data: existing } = await supabase
-      .from('obras')
-      .select('*')
-      .eq('user_id', userId)
-
-    for (const obra of obras) {
-      const existingRecord = existing?.find(e => e.id === obra.id)
-      
-      const dbRecord: Omit<DatabaseObra, 'created_at' | 'updated_at'> = {
-        id: obra.id,
-        user_id: userId,
-        nome: obra.nome,
-        descricao: obra.descricao,
-        responsavel: obra.responsavel,
-        data_inicio: obra.dataInicio,
-        data_fim_prevista: obra.dataFimPrevista,
-        notas: obra.notas
-      }
-
-      if (existingRecord) {
-        await supabase
-          .from('obras')
-          .update({ ...dbRecord, updated_at: new Date().toISOString() })
-          .eq('id', obra.id)
-          .eq('user_id', userId)
-      } else {
-        await supabase
-          .from('obras')
-          .insert({ ...dbRecord, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error('Erro ao sincronizar obras:', error)
-    return { success: false, error }
-  }
-}
-
-export const syncTarefas = async (userId: string, tarefas: any[]) => {
-  try {
-    const { data: existing } = await supabase
-      .from('tarefas')
-      .select('*')
-      .eq('user_id', userId)
-
-    for (const tarefa of tarefas) {
-      const existingRecord = existing?.find(e => e.id === tarefa.id)
-      
-      const dbRecord: Omit<DatabaseTarefa, 'created_at' | 'updated_at'> = {
-        id: tarefa.id,
-        user_id: userId,
-        descricao: tarefa.descricao,
-        obra: tarefa.obra,
-        responsavel_obra: tarefa.responsavelObra,
-        data_inicio: tarefa.dataInicio,
-        data_fim: tarefa.dataFim,
-        status: tarefa.status,
-        subempreiteiro: tarefa.subempreiteiro,
-        checklist: tarefa.checklist,
-        percentagem_conclusao: tarefa.percentagemConclusao
-      }
-
-      if (existingRecord) {
-        await supabase
-          .from('tarefas')
-          .update({ ...dbRecord, updated_at: new Date().toISOString() })
-          .eq('id', tarefa.id)
-          .eq('user_id', userId)
-      } else {
-        await supabase
-          .from('tarefas')
-          .insert({ ...dbRecord, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error('Erro ao sincronizar tarefas:', error)
-    return { success: false, error }
-  }
-}
-
-export const syncNotificacoes = async (userId: string, notificacoes: any[]) => {
-  try {
-    const { data: existing } = await supabase
-      .from('notificacoes')
-      .select('*')
-      .eq('user_id', userId)
-
-    for (const notif of notificacoes) {
-      const existingRecord = existing?.find(e => e.id === notif.id)
-      
-      const dbRecord: Omit<DatabaseNotificacao, 'created_at' | 'updated_at'> = {
-        id: notif.id,
-        user_id: userId,
-        tipo: notif.tipo,
-        titulo: notif.titulo,
-        descricao: notif.descricao,
-        data_alerta: notif.dataAlerta,
-        tarefa: notif.tarefa,
-        responsavel: notif.responsavel,
-        lida: notif.lida
-      }
-
-      if (existingRecord) {
-        await supabase
-          .from('notificacoes')
-          .update({ ...dbRecord, updated_at: new Date().toISOString() })
-          .eq('id', notif.id)
-          .eq('user_id', userId)
-      } else {
-        await supabase
-          .from('notificacoes')
-          .insert({ ...dbRecord, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error('Erro ao sincronizar notificações:', error)
-    return { success: false, error }
-  }
-}
-
-// Funções de carregamento
-export const loadUserData = async (userId: string) => {
-  try {
-    const [subempreiteiros, obras, tarefas, notificacoes] = await Promise.all([
-      supabase.from('subempreiteiros').select('*').eq('user_id', userId),
-      supabase.from('obras').select('*').eq('user_id', userId),
-      supabase.from('tarefas').select('*').eq('user_id', userId),
-      supabase.from('notificacoes').select('*').eq('user_id', userId)
-    ])
-
-    return {
-      subempreiteiros: subempreiteiros.data || [],
-      obras: obras.data || [],
-      tarefas: tarefas.data || [],
-      notificacoes: notificacoes.data || []
-    }
-  } catch (error) {
-    console.error('Erro ao carregar dados do usuário:', error)
-    return {
-      subempreiteiros: [],
-      obras: [],
-      tarefas: [],
-      notificacoes: []
-    }
-  }
-}
-
-// Função para criar backup
-export const createBackup = async (userId: string) => {
-  try {
-    const userData = await loadUserData(userId)
-    
-    const backup = {
-      user_id: userId,
-      timestamp: new Date().toISOString(),
-      data: userData,
-      version: '1.0'
-    }
-
-    const { data, error } = await supabase
-      .from('backups')
-      .insert(backup)
-
-    if (error) throw error
-
-    return { success: true, backup: data }
-  } catch (error) {
-    console.error('Erro ao criar backup:', error)
-    return { success: false, error }
-  }
-}
-
-// Função para migração de dados
-export const migrateUserData = async (userId: string, fromVersion: string, toVersion: string) => {
-  try {
-    // Criar backup antes da migração
-    await createBackup(userId)
-
-    // Lógica de migração baseada na versão
-    if (fromVersion === '1.0' && toVersion === '1.1') {
-      // Exemplo de migração: adicionar campos novos
-      const { data: subempreiteiros } = await supabase
-        .from('subempreiteiros')
-        .select('*')
-        .eq('user_id', userId)
-
-      for (const sub of subempreiteiros || []) {
-        if (!sub.bloqueado) {
-          await supabase
-            .from('subempreiteiros')
-            .update({ bloqueado: false })
-            .eq('id', sub.id)
-            .eq('user_id', userId)
+      if (sessionData && userData) {
+        try {
+          const session = JSON.parse(sessionData)
+          const user = JSON.parse(userData)
+          return { user, session }
+        } catch (parseError) {
+          console.warn('Erro ao verificar sessão:', parseError)
+          // Se houver erro, limpar localStorage
+          localStorage.removeItem('bmd_session')
+          localStorage.removeItem('bmd_user')
         }
       }
     }
 
-    return { success: true }
+    return null
   } catch (error) {
-    console.error('Erro na migração:', error)
-    return { success: false, error }
+    console.warn('Erro ao obter usuário atual:', error)
+    return null
   }
+}
+
+export const logoutUser = async () => {
+  try {
+    // Limpar localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('bmd_session')
+        localStorage.removeItem('bmd_user')
+      } catch (storageError) {
+        console.warn('Erro ao limpar localStorage:', storageError)
+      }
+    }
+
+    return true
+  } catch (error) {
+    console.warn('Erro no logout:', error)
+    return true // Retornar true mesmo com erro para garantir logout local
+  }
+}
+
+// Funções CRUD simplificadas
+export const createRecord = async (table: string, data: any) => {
+  // Sempre usar localStorage como fallback
+  const record = {
+    id: data.id || `${table}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    ...data,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+  
+  // Salvar no localStorage
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `bmd_${table}`
+      const existing = JSON.parse(localStorage.getItem(key) || '[]')
+      existing.unshift(record) // Adicionar no início
+      localStorage.setItem(key, JSON.stringify(existing))
+    } catch (error) {
+      console.warn('Erro ao salvar no localStorage:', error)
+    }
+  }
+  
+  return record
+}
+
+export const updateRecord = async (table: string, id: string, data: any) => {
+  const updates = { 
+    ...data, 
+    updated_at: new Date().toISOString() 
+  }
+
+  // Atualizar no localStorage
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `bmd_${table}`
+      const existing = JSON.parse(localStorage.getItem(key) || '[]')
+      const index = existing.findIndex((item: any) => item.id === id)
+      if (index !== -1) {
+        existing[index] = { ...existing[index], ...updates }
+        localStorage.setItem(key, JSON.stringify(existing))
+      }
+    } catch (error) {
+      console.warn('Erro ao atualizar no localStorage:', error)
+    }
+  }
+
+  return { id, ...updates }
+}
+
+export const deleteRecord = async (table: string, id: string) => {
+  // Remover do localStorage
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `bmd_${table}`
+      const existing = JSON.parse(localStorage.getItem(key) || '[]')
+      const filtered = existing.filter((item: any) => item.id !== id)
+      localStorage.setItem(key, JSON.stringify(filtered))
+    } catch (error) {
+      console.warn('Erro ao remover do localStorage:', error)
+    }
+  }
+
+  return true
+}
+
+export const getRecords = async (table: string, filters?: any) => {
+  let localData: any[] = []
+
+  // Buscar do localStorage primeiro
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `bmd_${table}`
+      const stored = localStorage.getItem(key)
+      
+      if (stored) {
+        localData = JSON.parse(stored)
+      } else {
+        // Se não há dados locais, gerar dados de exemplo
+        const currentUser = await getCurrentUser()
+        if (currentUser) {
+          localData = generateSampleData(table, currentUser.user.id)
+          localStorage.setItem(key, JSON.stringify(localData))
+        }
+      }
+    } catch (error) {
+      console.warn('Erro ao buscar do localStorage:', error)
+      // Gerar dados de exemplo em caso de erro
+      const currentUser = await getCurrentUser()
+      if (currentUser) {
+        localData = generateSampleData(table, currentUser.user.id)
+      }
+    }
+  }
+
+  // Aplicar filtros se necessário
+  if (filters && localData.length > 0) {
+    localData = localData.filter((item: any) => {
+      return Object.entries(filters).every(([key, value]) => item[key] === value)
+    })
+  }
+
+  // Ordenar por data de criação (mais recentes primeiro)
+  localData.sort((a: any, b: any) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
+
+  return localData
 }

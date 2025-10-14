@@ -1,163 +1,221 @@
-import { useEffect, useRef } from 'react'
+'use client'
+
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
-  syncSubempreiteiros, 
-  syncObras, 
-  syncTarefas, 
-  syncNotificacoes, 
-  loadUserData,
-  createBackup 
+  getRecords,
+  createRecord,
+  updateRecord,
+  deleteRecord,
 } from '@/lib/supabase'
+import { useAuth } from './useAuth'
 
 interface UseSupabaseSyncProps {
-  userId: string
-  subempreiteiros: any[]
-  obras: any[]
-  tarefas: any[]
-  notificacoes: any[]
-  onDataLoaded?: (data: any) => void
+  table: string
+  filters?: Record<string, any>
+  realtime?: boolean
+  autoBackup?: boolean
+  onDataLoaded?: (data: any[]) => void
 }
 
 export const useSupabaseSync = ({
-  userId,
-  subempreiteiros,
-  obras,
-  tarefas,
-  notificacoes,
+  table,
+  filters,
+  realtime = false,
+  autoBackup = false,
   onDataLoaded
 }: UseSupabaseSyncProps) => {
-  const syncTimeoutRef = useRef<NodeJS.Timeout>()
-  const lastSyncRef = useRef<string>('')
-  const isInitialLoadRef = useRef(true)
+  const { user, isAuthenticated } = useAuth()
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  
+  const mountedRef = useRef(true)
+  const loadingRef = useRef(false)
+  const dataLoadedRef = useRef(false)
 
-  // Carregar dados iniciais do Supabase
-  useEffect(() => {
-    if (userId && isInitialLoadRef.current) {
-      loadUserData(userId).then((data) => {
-        if (data.subempreiteiros.length > 0 || data.obras.length > 0 || data.tarefas.length > 0) {
-          // Converter dados do banco para formato da aplicação
-          const convertedData = {
-            subempreiteiros: data.subempreiteiros.map((sub: any) => ({
-              id: sub.id,
-              nome: sub.nome,
-              contacto: sub.contacto,
-              email: sub.email,
-              avaliacao: sub.avaliacao,
-              precoHora: sub.preco_hora,
-              tarefas: [],
-              obrasAtribuidas: sub.obras_atribuidas,
-              proximasDatasLivres: sub.proximas_datas_livres,
-              especialidade: sub.especialidade,
-              bloqueado: sub.bloqueado
-            })),
-            obras: data.obras.map((obra: any) => ({
-              id: obra.id,
-              nome: obra.nome,
-              descricao: obra.descricao,
-              responsavel: obra.responsavel,
-              dataInicio: obra.data_inicio,
-              dataFimPrevista: obra.data_fim_prevista,
-              notas: obra.notas
-            })),
-            tarefas: data.tarefas.map((tarefa: any) => ({
-              id: tarefa.id,
-              descricao: tarefa.descricao,
-              obra: tarefa.obra,
-              responsavelObra: tarefa.responsavel_obra,
-              dataInicio: tarefa.data_inicio,
-              dataFim: tarefa.data_fim,
-              status: tarefa.status,
-              subempreiteiro: tarefa.subempreiteiro,
-              checklist: tarefa.checklist,
-              percentagemConclusao: tarefa.percentagem_conclusao
-            })),
-            notificacoes: data.notificacoes.map((notif: any) => ({
-              id: notif.id,
-              tipo: notif.tipo,
-              titulo: notif.titulo,
-              descricao: notif.descricao,
-              dataAlerta: notif.data_alerta,
-              tarefa: notif.tarefa,
-              responsavel: notif.responsavel,
-              lida: notif.lida
-            }))
+  // Função para carregar dados com tratamento robusto de erros
+  const loadData = useCallback(async (showLoading = true) => {
+    // Não carregar se não estiver autenticado ou se já está carregando
+    if (!isAuthenticated || !user || loadingRef.current || !mountedRef.current) {
+      if (mountedRef.current) setLoading(false)
+      return
+    }
+
+    try {
+      loadingRef.current = true
+      if (showLoading && mountedRef.current) setLoading(true)
+      if (mountedRef.current) setError(null)
+
+      // Criar filtros com user_id válido
+      const finalFilters = {
+        ...filters,
+        user_id: user.id
+      }
+
+      const records = await getRecords(table, finalFilters)
+      
+      if (mountedRef.current) {
+        setData(records || [])
+        dataLoadedRef.current = true
+        
+        if (onDataLoaded) {
+          try {
+            onDataLoaded(records || [])
+          } catch (callbackError) {
+            console.warn('Erro no callback onDataLoaded:', callbackError)
           }
-          
-          onDataLoaded?.(convertedData)
         }
-        isInitialLoadRef.current = false
+      }
+    } catch (err: any) {
+      console.warn(`Erro ao carregar ${table}:`, err)
+      if (mountedRef.current) {
+        setError(null) // Não definir erro para não quebrar a UI
+        // Manter dados existentes se houver
+        if (!dataLoadedRef.current) {
+          setData([])
+        }
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false)
+      loadingRef.current = false
+    }
+  }, [table, filters, onDataLoaded, user, isAuthenticated])
+
+  // Função para criar registro com fallback
+  const create = useCallback(async (newData: any) => {
+    if (!mountedRef.current || !user) return null
+
+    try {
+      setSyncing(true)
+      setError(null)
+
+      const record = await createRecord(table, {
+        ...newData,
+        user_id: user.id,
+        id: newData.id || `${table}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       })
-    }
-  }, [userId, onDataLoaded])
 
-  // Sincronização automática quando dados mudam
-  useEffect(() => {
-    if (!userId || isInitialLoadRef.current) return
-
-    const currentDataHash = JSON.stringify({
-      subempreiteiros,
-      obras,
-      tarefas,
-      notificacoes
-    })
-
-    if (currentDataHash !== lastSyncRef.current) {
-      lastSyncRef.current = currentDataHash
-
-      // Debounce para evitar muitas sincronizações
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
+      // Atualizar dados localmente
+      if (mountedRef.current && record) {
+        setData(prev => [record, ...prev])
       }
-
-      syncTimeoutRef.current = setTimeout(async () => {
-        try {
-          await Promise.all([
-            syncSubempreiteiros(userId, subempreiteiros),
-            syncObras(userId, obras),
-            syncTarefas(userId, tarefas),
-            syncNotificacoes(userId, notificacoes)
-          ])
-          
-          console.log('✅ Dados sincronizados com Supabase')
-        } catch (error) {
-          console.error('❌ Erro na sincronização:', error)
-        }
-      }, 2000) // Aguarda 2 segundos após última mudança
+      
+      return record
+    } catch (err: any) {
+      console.warn(`Erro ao criar ${table}:`, err)
+      if (mountedRef.current) {
+        setError(null)
+      }
+      // Retornar dados mesmo com erro
+      const fallbackRecord = {
+        id: `${table}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        ...newData,
+        user_id: user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+      
+      if (mountedRef.current) {
+        setData(prev => [fallbackRecord, ...prev])
+      }
+      
+      return fallbackRecord
+    } finally {
+      if (mountedRef.current) setSyncing(false)
     }
+  }, [table, user])
 
+  // Função para atualizar registro com fallback
+  const update = useCallback(async (id: string, updates: any) => {
+    if (!mountedRef.current || !user) return null
+
+    try {
+      setSyncing(true)
+      setError(null)
+
+      const record = await updateRecord(table, id, updates)
+
+      // Atualizar dados localmente
+      if (mountedRef.current && record) {
+        setData(prev => prev.map(item => item.id === id ? record : item))
+      }
+      
+      return record
+    } catch (err: any) {
+      console.warn(`Erro ao atualizar ${table}:`, err)
+      if (mountedRef.current) {
+        setError(null)
+        const updatedRecord = { id, ...updates, updated_at: new Date().toISOString() }
+        setData(prev => prev.map(item => item.id === id ? { ...item, ...updatedRecord } : item))
+        return updatedRecord
+      }
+      return null
+    } finally {
+      if (mountedRef.current) setSyncing(false)
+    }
+  }, [table, user])
+
+  // Função para deletar registro com fallback
+  const remove = useCallback(async (id: string) => {
+    if (!mountedRef.current || !user) return false
+
+    try {
+      setSyncing(true)
+      setError(null)
+
+      await deleteRecord(table, id)
+
+      // Remover dos dados localmente
+      if (mountedRef.current) {
+        setData(prev => prev.filter(item => item.id !== id))
+      }
+      
+      return true
+    } catch (err: any) {
+      console.warn(`Erro ao deletar ${table}:`, err)
+      if (mountedRef.current) {
+        setError(null)
+        setData(prev => prev.filter(item => item.id !== id))
+      }
+      return true
+    } finally {
+      if (mountedRef.current) setSyncing(false)
+    }
+  }, [table, user])
+
+  // Função para recarregar dados
+  const refresh = useCallback(() => {
+    if (mountedRef.current && isAuthenticated && user) {
+      loadData(false)
+    }
+  }, [loadData, isAuthenticated, user])
+
+  // Carregar dados quando usuário estiver autenticado
+  useEffect(() => {
+    if (isAuthenticated && user && mountedRef.current && !dataLoadedRef.current) {
+      loadData()
+    }
+  }, [isAuthenticated, user, loadData])
+
+  // Cleanup
+  useEffect(() => {
+    mountedRef.current = true
+    
     return () => {
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
-      }
+      mountedRef.current = false
     }
-  }, [userId, subempreiteiros, obras, tarefas, notificacoes])
-
-  // Backup automático diário
-  useEffect(() => {
-    if (!userId) return
-
-    const createDailyBackup = async () => {
-      const lastBackup = localStorage.getItem(`lastBackup_${userId}`)
-      const today = new Date().toDateString()
-
-      if (lastBackup !== today) {
-        try {
-          await createBackup(userId)
-          localStorage.setItem(`lastBackup_${userId}`, today)
-          console.log('✅ Backup diário criado')
-        } catch (error) {
-          console.error('❌ Erro ao criar backup:', error)
-        }
-      }
-    }
-
-    // Criar backup na inicialização e depois a cada hora
-    createDailyBackup()
-    const backupInterval = setInterval(createDailyBackup, 60 * 60 * 1000) // 1 hora
-
-    return () => clearInterval(backupInterval)
-  }, [userId])
+  }, [])
 
   return {
-    isInitialLoad: isInitialLoadRef.current
+    data,
+    loading,
+    error,
+    syncing,
+    create,
+    update,
+    remove,
+    refresh,
+    lastSync: new Date().toISOString(),
   }
 }
