@@ -1,26 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
 
+// Configuração segura para build
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDk3NzEyMDAsImV4cCI6MTk2NTM0NzIwMH0.placeholder'
 
 // Verificar se estamos em ambiente de build
-const isBuildTime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_ENV
+const isBuildTime = typeof window === 'undefined'
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: false,
-    detectSessionInUrl: false,
+    persistSession: !isBuildTime,
+    autoRefreshToken: !isBuildTime,
+    detectSessionInUrl: !isBuildTime,
     storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 1,
-    },
-  },
-  // Desabilitar conexões durante build
-  global: {
-    fetch: isBuildTime ? undefined : fetch,
   },
 })
 
@@ -170,7 +162,7 @@ export const authenticateUser = async (username: string, password: string) => {
         login_time: new Date().toISOString(),
       }
 
-      // Salvar no localStorage para persistência
+      // Salvar no localStorage para persistência (apenas no cliente)
       if (typeof window !== 'undefined') {
         try {
           localStorage.setItem('bmd_session', JSON.stringify(sessionData))
@@ -192,7 +184,7 @@ export const authenticateUser = async (username: string, password: string) => {
 
 export const getCurrentUser = async () => {
   try {
-    // Verificar localStorage primeiro
+    // Verificar localStorage primeiro (apenas no cliente)
     if (typeof window !== 'undefined') {
       const sessionData = localStorage.getItem('bmd_session')
       const userData = localStorage.getItem('bmd_user')
@@ -220,7 +212,7 @@ export const getCurrentUser = async () => {
 
 export const logoutUser = async () => {
   try {
-    // Limpar localStorage
+    // Limpar localStorage (apenas no cliente)
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem('bmd_session')
@@ -247,7 +239,7 @@ export const createRecord = async (table: string, data: any) => {
     updated_at: new Date().toISOString()
   }
   
-  // Salvar no localStorage
+  // Salvar no localStorage (apenas no cliente)
   if (typeof window !== 'undefined') {
     try {
       const key = `bmd_${table}`
@@ -268,7 +260,7 @@ export const updateRecord = async (table: string, id: string, data: any) => {
     updated_at: new Date().toISOString() 
   }
 
-  // Atualizar no localStorage
+  // Atualizar no localStorage (apenas no cliente)
   if (typeof window !== 'undefined') {
     try {
       const key = `bmd_${table}`
@@ -287,7 +279,7 @@ export const updateRecord = async (table: string, id: string, data: any) => {
 }
 
 export const deleteRecord = async (table: string, id: string) => {
-  // Remover do localStorage
+  // Remover do localStorage (apenas no cliente)
   if (typeof window !== 'undefined') {
     try {
       const key = `bmd_${table}`
@@ -305,7 +297,7 @@ export const deleteRecord = async (table: string, id: string) => {
 export const getRecords = async (table: string, filters?: any) => {
   let localData: any[] = []
 
-  // Buscar do localStorage primeiro
+  // Buscar do localStorage primeiro (apenas no cliente)
   if (typeof window !== 'undefined') {
     try {
       const key = `bmd_${table}`
