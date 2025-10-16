@@ -758,8 +758,8 @@ const Dashboard = () => {
   )
 }
 
-// Componente principal da aplicação com tipagem explícita
-export default function Home(): JSX.Element {
+// Componente principal da aplicação
+export default function Home() {
   const { user, loading } = useAuth()
 
   if (loading) {
